@@ -1,0 +1,214 @@
+using System;
+using System.Reflection;
+using Cysharp.Threading.Tasks;
+using CesiumLoader.SDK.Logging;
+using CesiumLoader.SDK.Runtime;
+using CesiumLoader.SDK.Scenes;
+using CesiumLoader.SDK.Scheduling;
+using CesiumLoader.SDK.UserInterface;
+
+namespace CesiumLoader.SDK.Mods
+{
+    /// <summary>
+    /// 生命周期驱动器: 把一个 <see cref="IMod"/> 从 OnLoad 推进到 OnUnload,
+    /// 并在这个过程中完成"主线程保证 + 订阅登记 + 卸载自动清理"。
+    ///
+    /// 线程约定:
+    ///  - OnLoad/OnInitialize/OnUpdate/OnLateUpdate/OnSceneLoaded/OnUnload 全部在主线程执行。
+    ///  - 启动门用 UniTask.Delay(与既有 ModBase.Run 相同机制)从 boot 线程切回主线程。
+    ///
+    /// 启动门: <c>delayMs</c> 是<b>等待上限</b>, 不是固定等待 —— 游戏一旦就绪就立即初始化,
+    /// 最坏情况才等满 <c>delayMs</c>(见 <see cref="StartupGate"/>)。
+    /// </summary>
+    public static class ModHost
+    {
+        /// <summary>默认启动上限: 游戏未就绪时最多等这么久(与旧 API 的固定延迟一致)。</summary>
+        public const int DefaultDelayMs = 30000;
+
+        /// <summary>启动一个 mod(不阻塞调用者)。</summary>
+        /// <param name="mod">mod 实例。</param>
+        /// <param name="delayMs">启动上限(毫秒): 游戏就绪即初始化, 最多等到这么久; &lt;= 0 表示不等待。</param>
+        /// <param name="tag">日志标签, 默认用 mod 名。</param>
+        public static void Start(IMod mod, int delayMs = DefaultDelayMs, string tag = null)
+        {
+            if (mod == null) return;
+
+            Type type = mod.GetType();
+            string label = string.IsNullOrEmpty(tag) ? (mod.Name ?? type.Name) : tag;
+
+            ModContext ctx = null;
+            try { ctx = ModRegistry.GetOrRegister(type.Assembly); }
+            catch (Exception e) { SdkLog.Error(label, "注册 mod 上下文失败: " + e.Message); }
+
+            if (ctx == null)
+            {
+                try { ctx = ModRegistry.Register(type.Name, mod.Version, mod.Author, mod.Description, type.Assembly); }
+                catch (Exception e) { SdkLog.Error(label, "创建 mod 上下文失败: " + e.Message); }
+            }
+
+            // 注: 这里**不做**运行期的游戏程序集比对 —— 热更环境里读不到程序集身份
+            // (HybridCLR 裁剪了 Assembly.ManifestModule), 一旦去读就是 JIT 期抛
+            // MissingMethodException, 异常从模组入口逃出去, 模组全部起不来(3.7.2 的教训)。
+            // 真正的兜底是回调护栏(ModCallbackGuard) + 每次热更重编译全部模组。
+
+            SdkLog.Info(label, "生命周期开始: " + (mod.Name ?? type.Name) +
+                              " v" + mod.Version + " (启动上限 " + delayMs + "ms)");
+
+            RunLifecycleAsync(mod, ctx, delayMs, label).Forget();
+        }
+
+        /// <summary>手动卸载一个已启动的 mod。</summary>
+        public static void Stop(IMod mod, string tag = null)
+        {
+            if (mod == null) return;
+            string label = string.IsNullOrEmpty(tag) ? (mod.Name ?? mod.GetType().Name) : tag;
+
+            var ctx = mod.Context;
+            if (ctx != null && ctx.State == ModLifecycleState.Stopped)
+            {
+                SdkLog.Debug(label, "已卸载, 忽略重复 Stop");
+                return;
+            }
+
+            SdkLog.Info(label, "开始卸载");
+            if (ctx != null) ctx.Cleanup();          // 自动退订事件/Update/协程/UI/对象
+            SafeOnMain(label, "OnUnload", mod.OnUnload);
+            if (ctx != null)
+            {
+                ctx.Mod = null;
+                ctx.State = ModLifecycleState.Stopped;
+            }
+            SdkLog.Info(label, "卸载完成");
+        }
+
+        private static async UniTaskVoid RunLifecycleAsync(IMod mod, ModContext ctx, int delayMs, string label)
+        {
+            // ---- OnLoad: 主线程, 立即执行(不等待启动门) ----
+            ctx.State = ModLifecycleState.Loaded;
+            SafeOnMain(label, "OnLoad", mod.OnLoad);
+
+            // ---- 启动门: 游戏就绪即初始化; 最坏等到 delayMs(旧实现是固定等满 delayMs) ----
+            if (delayMs > 0)
+            {
+                try { await StartupGate.WaitAndSettleAsync(delayMs, label); }
+                catch (Exception e) { SdkLog.Warn(label, "启动门异常(继续初始化): " + e.Message); }
+            }
+
+            // ---- OnInitialize: 主线程 ----
+            ctx.State = ModLifecycleState.Initializing;
+
+            Exception initError = null;
+            MainThread.Run(() =>
+            {
+                try { mod.OnInitialize(); }
+                catch (Exception e) { initError = e; }
+            });
+
+            if (initError != null)
+            {
+                ctx.LastError = initError;
+                ctx.State = ModLifecycleState.Failed;
+                SdkLog.ReportCrash(label, "OnInitialize", initError);
+                ctx.Cleanup();
+                SafeOnMain(label, "OnUnload(初始化失败)", mod.OnUnload);
+                return;
+            }
+
+            // ---- 注册每帧回调 / 场景事件 / GUI(只注册真正覆写了的) ----
+            try
+            {
+                Type type = mod.GetType();
+
+                if (Overrides(type, "OnUpdate"))
+                    UpdateService.SubscribeUpdate(mod.OnUpdate, ctx, label + ".OnUpdate");
+
+                if (Overrides(type, "OnLateUpdate"))
+                    UpdateService.SubscribeLateUpdate(mod.OnLateUpdate, ctx, label + ".OnLateUpdate");
+
+                bool wantSceneLoaded = Overrides(type, "OnSceneLoaded");
+                bool wantSceneUnloaded = Overrides(type, "OnSceneUnloaded");
+                if (wantSceneLoaded)
+                    SceneService.SubscribeSceneLoaded(mod.OnSceneLoaded, ctx);
+                if (wantSceneUnloaded)
+                    SceneService.SubscribeSceneUnloaded(mod.OnSceneUnloaded, ctx);
+
+                if (Overrides(type, "OnGUI"))
+                    UiService.RegisterGuiCallback(mod.OnGUI, ctx, label + ".OnGUI");
+            }
+            catch (Exception e)
+            {
+                ctx.LastError = e;
+                ctx.State = ModLifecycleState.Failed;
+                SdkLog.ReportCrash(label, "注册回调", e);
+                ctx.Cleanup();
+                return;
+            }
+
+            // 初始化完成后才挂上实例: 启动延迟/初始化期间外部改配置时,
+            // CheckConfigsOnMainThread 不会提前调用 OnConfigChanged。
+            ctx.Mod = mod;
+            ctx.State = ModLifecycleState.Initialized;
+            SdkLog.Info(label, "初始化完成 (状态: Initialized)");
+        }
+
+        /// <summary>
+        /// 判断子类是否覆写了某个生命周期方法(避免给空实现装每帧回调)。
+        /// 非 ModBase 的 IMod 实现一律视为已覆写。
+        /// </summary>
+        private static bool Overrides(Type type, string methodName)
+        {
+            try
+            {
+                var method = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.Instance,
+                    null, Type.EmptyTypes, null);
+                if (method == null) return false;
+                return method.DeclaringType != typeof(ModBase);
+            }
+            catch { return true; }
+        }
+
+        private static long _lastConfigCheckTicks;
+        private const long ConfigCheckIntervalTicks = 10000000; // 1 秒
+
+        /// <summary>
+        /// 轮询所有活跃 mod 的配置, 若文件修改则热重载并在主线程调用 OnConfigChanged。
+        /// 仅在主线程调用, 间隔 ~1 秒(使用 DateTime.UtcNow.Ticks, 不受变速影响)。
+        /// </summary>
+        public static void CheckConfigsOnMainThread(bool force = false)
+        {
+            long now = DateTime.UtcNow.Ticks;
+            if (!force && now - _lastConfigCheckTicks < ConfigCheckIntervalTicks) return;
+            _lastConfigCheckTicks = now;
+
+            var contexts = ModRegistry.All;
+            for (int i = 0; i < contexts.Count; i++)
+            {
+                var ctx = contexts[i];
+                if (ctx == null || ctx.State == ModLifecycleState.Stopped) continue;
+
+                var cfg = ctx.Config;
+                if (cfg == null) continue;
+
+                // 启动延迟/初始化期间也刷新 ModConfig, 这样 OnInitialize 读到的是最新值;
+                // 但只有初始化完成后才回调实例, 避免提前访问未初始化字段。
+                if (cfg.ReloadIfChanged())
+                {
+                    if (ctx.State == ModLifecycleState.Initialized && ctx.Mod is ModBase mb)
+                    {
+                        SafeOnMain(ctx.ModId, "OnConfigChanged", mb.OnConfigChanged);
+                    }
+                }
+            }
+        }
+
+        private static void SafeOnMain(string label, string what, Action action)
+        {
+            if (action == null) return;
+            MainThread.Run(() =>
+            {
+                try { action(); }
+                catch (Exception e) { SdkLog.ReportCrash(label, what, e); }
+            });
+        }
+    }
+}

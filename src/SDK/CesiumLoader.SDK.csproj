@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>CesiumLoader.SDK</AssemblyName>
+    <RootNamespace>CesiumLoader.SDK</RootNamespace>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/higashitaniyume/CesiumLoader</PackageProjectUrl>
+    <!-- SDK 版本: 与 SdkVersion.Current 保持一致, 发布时同步递增 -->
+    <Version>3.7.5</Version>
+    <!-- 保持程序集标识 2.5.1.0: 新增 API 是二进制兼容的, 旧 mod 仍按原名/版本解析到本次 SDK -->
+    <AssemblyVersion>2.5.1.0</AssemblyVersion>
+    <FileVersion>3.7.5.0</FileVersion>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- 生成 XML 文档: 与 DLL 一起随发布包分发, 第三方 mod 开发时 IDE 才能看到注释。
+         尚未补注释的公开成员不刷 CS1591 警告, 但已有注释都会进 XML。 -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 单元测试可访问 internal 成员(SpeedHack 的控制文件目录覆盖 / 缓存重置等测试钩子) -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>CesiumLoader.SDK.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 游戏热更程序集:所有游戏类型(UIManager / GameLogicManager / RoomInfo / 各RPC / party.protocol / party.model) -->
+    <Reference Include="AstralParty.Runtime">
+      <HintPath>$(GameRefsDir)AstralParty.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- UnityEngine.CoreModule: MonoBehaviour / GameObject / Time -->
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameRefsDir)UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- UniTask: 后台轮询 + RPC 回调 -->
+    <Reference Include="UniTask">
+      <HintPath>$(GameRefsDir)UniTask.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Google.Protobuf: RepeatedField / MapField / ByteString -->
+    <Reference Include="Google.Protobuf.Runtime">
+      <HintPath>$(GameRefsDir)Google.Protobuf.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

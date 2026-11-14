@@ -1,0 +1,162 @@
+{
+  "version": "0.4.0",
+  "bundleKey": "4da1f23c112208b0f8df2a1327b4e4ce",
+  "profiles": [
+    {
+      "id": "0c6650c5e9eccffde61b8397d4694f72",
+      "gameVersion": "3.3.0",
+      "originalSha256": "77da946bf7d331351a93ff16707aab426f534b7577a771f21267478b7bc70c87",
+      "patchedSha256": "83bdf329d897804146eb6aa1a4dce2a2ee8f79dc4b3897bbc0b764f7c60a9df4",
+      "deltaSha256": "aeb5b63322adf89036414fe3e3b3e6e8e6711c78a52d8449bbd2640b219c1326",
+      "legacyMinSha256": [
+        "412f391ad50fbea31e003c8b4d62c55f3c5072b71257f279bb9abc5afbbcb6e5"
+      ]
+    },
+    {
+      "id": "3c7700aa58877b365d45231b1225fcbb",
+      "gameVersion": "3.3.0",
+      "originalSha256": "01ee8b4332fdb024fd4c5b9bfdb38ce25f9d42e0b07941765bc7cd06efdaaaa4",
+      "patchedSha256": "48dd32de20cb67f03e467ca24d8fcacb4db71aa922ab37a83a7c511fca347895",
+      "deltaSha256": "a0e458267f16b4c818801c5d0a24263f989ce97fdacf65eba42911ffc6ca9eb4",
+      "legacyMinSha256": []
+    },
+    {
+      "id": "7a5e751e708c075b7272acfd3dbe1249",
+      "gameVersion": "3.3.0",
+      "originalSha256": "2ea82144e02b301a07a236a42706611df82a83b85a92c1b1fdd0d7a1e93a91e2",
+      "patchedSha256": "64eac94a3c713f68711d27d8fe0c438603e310e6d70cd8079f75568488a0e247",
+      "deltaSha256": "080e62465617e0d44c2b61d03a0cfddbb02ffa8af8a52d320a02d276b0fdad6e",
+      "legacyMinSha256": []
+    },
+    {
+      "id": "aadfc2bcce57f6266d07f90b29bea89c",
+      "gameVersion": "3.3.0",
+      "originalSha256": "be299660bd53e61985ec578154ddd483c88022927ca940e3d30681f706218bb6",
+      "patchedSha256": "e96dac837b8b13443c2f50605c0bcb8c70eb59b9f19a600c32183f43a1deaf36",
+      "deltaSha256": "59f0265b46cda7b1dd59527ce4b7e1d76dd0d8681149aa789ffbff1f848a02b3",
+      "legacyMinSha256": []
+    }
+  ],
+  "mods": [
+    {
+      "id": "ActivityLogMod",
+      "name": "实时行为日志"
+    },
+    {
+      "id": "AngelModeUnlockMod",
+      "name": "天使模式解锁"
+    },
+    {
+      "id": "AudioSkinMod",
+      "name": "音效替换（需音效方案）"
+    },
+    {
+      "id": "AutoThanksMod",
+      "name": "自动感谢"
+    },
+    {
+      "id": "BattleCardPointsMod",
+      "name": "战斗卡牌点数"
+    },
+    {
+      "id": "CardSkinMod",
+      "name": "卡牌皮肤（需皮肤素材）"
+    },
+    {
+      "id": "CharacterSkinMod",
+      "name": "角色皮肤（需皮肤素材）"
+    },
+    {
+      "id": "CharacterTransparencyMod",
+      "name": "角色半透明（触屏）"
+    },
+    {
+      "id": "ChatDurationMod",
+      "name": "消息停留时间"
+    },
+    {
+      "id": "CombatOddsMod",
+      "name": "战斗胜率助手"
+    },
+    {
+      "id": "ForkDirectionMod",
+      "name": "岔路口看牌"
+    },
+    {
+      "id": "FreeCameraMod",
+      "name": "自由相机（双指滑动）"
+    },
+    {
+      "id": "HandViewerMod",
+      "name": "手牌查看"
+    },
+    {
+      "id": "HideHudMod",
+      "name": "隐藏 HUD（触屏）"
+    },
+    {
+      "id": "HomeBottomBarMod",
+      "name": "首页底栏展开"
+    },
+    {
+      "id": "LanguageUnlockMod",
+      "name": "多语言支持"
+    },
+    {
+      "id": "MapPeekMod",
+      "name": "选人地图预览"
+    },
+    {
+      "id": "PinnedRelicsMod",
+      "name": "关键筹码置顶"
+    },
+    {
+      "id": "PvePanelMod",
+      "name": "PVE 面板"
+    },
+    {
+      "id": "PveWaveForecastMod",
+      "name": "PVE 刷怪预报"
+    },
+    {
+      "id": "QuickChatPlusMod",
+      "name": "快捷短语扩展"
+    },
+    {
+      "id": "ShopRelicPeekMod",
+      "name": "商店与筹码看板"
+    },
+    {
+      "id": "SpeedHackMod",
+      "name": "变速悬浮面板（Unity）"
+    },
+    {
+      "id": "StarCoinShopMod",
+      "name": "星币商店助手"
+    },
+    {
+      "id": "TurnClockMod",
+      "name": "回合时钟"
+    },
+    {
+      "id": "TurnFocusMod",
+      "name": "回合提醒（游戏内）"
+    },
+    {
+      "id": "UnlockFrameRateMod",
+      "name": "帧率解锁"
+    },
+    {
+      "id": "NoBotMod",
+      "name": "不自动补人机"
+    },
+    {
+      "id": "AndroidControlsMod",
+      "name": "安卓触屏控制入口"
+    },
+    {
+      "id": "CesiumOverlayMod",
+      "name": "Cesium 安卓悬浮窗"
+    }
+  ]
+}

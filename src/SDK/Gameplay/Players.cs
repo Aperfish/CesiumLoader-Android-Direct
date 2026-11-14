@@ -1,0 +1,446 @@
+using System;
+using System.Collections.Generic;
+using GameLogic;
+using party.model;
+using Tools;
+
+namespace CesiumLoader.SDK.Gameplay
+{
+    /// <summary>
+    /// 玩家数据访问。所有方法都做空保护, 不在战斗/房间时返回空结果, 绝不抛异常。
+    /// </summary>
+    public static class Players
+    {
+        /// <summary>当前战斗中的玩家列表(空 = 不在战斗)。</summary>
+        public static IReadOnlyList<BattlePlayerData> All()
+        {
+            try
+            {
+                var gm = SimpleSingletonProvider<GameLogicManager>.inst;
+                if (gm?.battle?.PlayerDatas != null)
+                    return gm.battle.PlayerDatas;
+            }
+            catch { }
+            return Array.Empty<BattlePlayerData>();
+        }
+
+        /// <summary>按 playerId 查玩家数据, 查不到返回 null。</summary>
+        public static BattlePlayerData Get(long playerId)
+        {
+            try
+            {
+                var gm = SimpleSingletonProvider<GameLogicManager>.inst;
+                if (gm?.battle != null && gm.battle.PlayerDatas != null)
+                    return gm.battle.GetPlayerDataById(playerId);
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>玩家星币数, 查不到返回 0。</summary>
+        public static int Gold(long playerId)
+        {
+            try
+            {
+                var pd = Get(playerId);
+                return pd?.Property?.gold?.Value ?? 0;
+            }
+            catch { return 0; }
+        }
+
+        /// <summary>玩家模式分数(<c>SpecialScore</c>)。查不到返回 0。</summary>
+        /// <remarks>非对称模式表示持有礼物数; 非综合评分。离局/属性未下发时为 0。</remarks>
+        public static long Score(long playerId)
+        {
+            try
+            {
+                var pd = Get(playerId);
+                var score = pd?.Property?.Score;
+                return score != null ? score.Value : 0;
+            }
+            catch { return 0; }
+        }
+
+        /// <summary>玩家手牌数, 查不到返回 0。</summary>
+        public static int HandCount(long playerId)
+        {
+            try
+            {
+                var pd = Get(playerId);
+                return pd?.cardContainer?.CardCount ?? 0;
+            }
+            catch { return 0; }
+        }
+
+        /// <summary>当前手牌快照: (卡牌数量, 当前战斗费用总和)。读取失败返回 (0,0)。</summary>
+        public static Tuple<int, int> HandSnapshot(long playerId)
+        {
+            try
+            {
+                var gm = SimpleSingletonProvider<GameLogicManager>.inst;
+                if (gm?.account == null || !gm.account.IsSelf(playerId)) return Tuple.Create(0, 0);
+                var pd = gm?.battle?.GetPlayerDataById(playerId);
+                var cards = pd?.cardContainer?._HandCards;
+                if (cards == null) return Tuple.Create(0, 0);
+                int total = 0;
+                foreach (var card in cards)
+                {
+                    if (card == null) continue;
+                    int cost = card.BattleCost;
+                    if (cost < 0) cost = card.Config != null ? card.Config.Cost : 0;
+                    if (cost > 0) total += cost;
+                }
+                return Tuple.Create(cards.Count, total);
+            }
+            catch { return Tuple.Create(0, 0); }
+        }
+
+        /// <summary>玩家昵称(只查玩家列表), 查不到返回 null。</summary>
+        public static string Nick(long playerId)
+        {
+            try
+            {
+                var pd = Get(playerId);
+                return SafeNick(pd);
+            }
+            catch { return null; }
+        }
+
+        /// <summary>安全昵称: 空/纯空白昵称返回 null(跳过幽灵条目)。</summary>
+        public static string SafeNick(BattlePlayerData pd)
+        {
+            try
+            {
+                if (pd?.player == null) return null;
+                string n = pd.player.GetNick();
+                if (string.IsNullOrWhiteSpace(n)) return null;
+                return n;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>是否是"我"。</summary>
+        public static bool IsSelf(long playerId)
+        {
+            try
+            {
+                var gm = SimpleSingletonProvider<GameLogicManager>.inst;
+                return gm?.account?.IsSelf(playerId) ?? false;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>自己的手牌内容(队友手牌被服务器掩码, 拿不到)。</summary>
+        public static IReadOnlyList<HandCardData> MyHandCards()
+        {
+            try
+            {
+                var gm = SimpleSingletonProvider<GameLogicManager>.inst;
+                var room = gm?.room?.curRoomInfo;
+                var me = room?.GetSelfInfo();
+                if (me?.cardContainer?._HandCards != null)
+                    return me.cardContainer._HandCards;
+            }
+            catch { }
+            return Array.Empty<HandCardData>();
+        }
+
+        /// <summary>一名角色的即时攻防面板数据(全部做过空保护)。</summary>
+        public struct PlayerStat
+        {
+            public long Id;
+            public string Name;
+            public int Atk;
+            public int Def;
+            public int Hp;
+            public int MaxHp;
+            public bool IsSelf;
+            public bool IsMonster;
+            public bool IsBot;
+
+            /// <summary>座位号(0 起; 来自 <c>RoomPlayer.Slot</c>, 异常时按名册顺序兜底)。</summary>
+            public int Slot;
+
+            /// <summary>角色名(<c>CharacterHandle.GetCharacterName</c>)。查不到为空串。</summary>
+            public string Character;
+        }
+
+        /// <summary>
+        /// 当前房间全体角色的攻/防/血面板(先玩家、后怪物)。不在房间时返回空。
+        /// 数据取自 <c>RoomInfo.Players/Monsters</c> 的 <c>BattleProperty</c>(ATK/DEF/HP/maxHP)。
+        /// <see cref="PlayerStat.Slot"/> 来自 <c>RoomPlayer.Slot</c>, 异常时按名册顺序兜底(同一帧内稳定)。
+        /// </summary>
+        public static IReadOnlyList<PlayerStat> Roster()
+        {
+            var list = new List<PlayerStat>();
+            try
+            {
+                var gm = SimpleSingletonProvider<GameLogicManager>.inst;
+                var room = gm?.room?.curRoomInfo;
+                if (room == null) return list;
+
+                var seen = new HashSet<long>();
+                int fallback = 0;
+                if (room.Players != null)
+                    foreach (var p in room.Players)
+                        AddStat(list, gm, p, isMonster: false, seen, fallback++);
+                if (room.Monsters != null)
+                    foreach (var m in room.Monsters)
+                        AddStat(list, gm, m, isMonster: true, seen, fallback++);
+            }
+            catch { }
+            return list;
+        }
+
+        private static void AddStat(List<PlayerStat> list, GameLogicManager gm, RoomPlayer p, bool isMonster, HashSet<long> seen, int fallbackIndex)
+        {
+            try
+            {
+                if (p == null) return;
+                if (p.Id == 0 || !seen.Add(p.Id)) return;
+                var prop = p.Property;
+                var stat = new PlayerStat
+                {
+                    Id = p.Id,
+                    Name = SafeRoomNick(p),
+                    Atk = prop?.ATK?.Value ?? 0,
+                    Def = prop?.DEF?.Value ?? 0,
+                    Hp = prop?.HP?.Value ?? 0,
+                    MaxHp = prop?.maxHP ?? 0,
+                    IsMonster = isMonster,
+                    IsBot = SafeBot(p),
+                    IsSelf = !isMonster && (gm?.account?.IsSelf(p.Id) ?? false),
+                    Slot = ResolveSlot(SafeSlot(p), fallbackIndex),
+                    Character = SafeCharacter(p),
+                };
+                list.Add(stat);
+            }
+            catch { }
+        }
+
+        /// <summary>座位兜底: <paramref name="slot"/> 在 0..15 范围内直接用, 否则用名册下标。</summary>
+        internal static int ResolveSlot(int slot, int fallbackIndex)
+        {
+            return (slot >= 0 && slot < 16) ? slot : fallbackIndex;
+        }
+
+        private static int SafeSlot(RoomPlayer p)
+        {
+            try { return p != null ? p.Slot : -1; } catch { return -1; }
+        }
+
+        private static string SafeCharacter(RoomPlayer p)
+        {
+            try
+            {
+                if (p?.characterConfig == null) return "";
+                var name = CharacterHandle.GetCharacterName(p.characterConfig.Id, p.characterConfig.CharacterType);
+                return name ?? "";
+            }
+            catch { return ""; }
+        }
+
+        private static string SafeRoomNick(RoomPlayer p)
+        {
+            try { var n = p?.GetNick(); return string.IsNullOrWhiteSpace(n) ? null : n; }
+            catch { return null; }
+        }
+
+        private static bool SafeBot(RoomPlayer p)
+        {
+            try { return p != null && p.IsBot; } catch { return false; }
+        }
+
+        /// <summary>当前有效对局上下文。</summary>
+        public struct MatchInfo
+        {
+            /// <summary>房间 id(<c>Room.Id</c>)。</summary>
+            public long RoomId;
+            /// <summary>对局开始时间。</summary>
+            public long StartTime;
+            /// <summary>地图模式(见 <c>RoomInfo.MapType</c>)。</summary>
+            public int MapType;
+            /// <summary>是否为 PVE 模式(见 <c>BattleConfig.IsPVE</c>)。</summary>
+            public bool IsPve;
+            /// <summary>战斗对象已存在且 <c>PlayerDatas</c> 非空。</summary>
+            public bool InBattle;
+        }
+
+        /// <summary>当前有效对局信息; 不在有效对局返回 <c>false</c>。</summary>
+        /// <remarks>
+        /// 有效判定与 <see cref="GameEvents.StartAutoHook"/> 一致: 房间状态为 Running、房间 id 与开始时间均大于 0、
+        /// 战斗对象存在且 <c>PlayerDatas</c> 非空。大厅、选人界面或战斗未就绪时返回 <c>false</c>。
+        /// <c>RoomId/StartTime</c> 同时不变视为同一局(重连不换局), 换局至少一项变化。
+        /// </remarks>
+        public static bool TryGetMatch(out MatchInfo info)
+        {
+            info = default;
+            try
+            {
+                if (!SimpleSingletonProvider<GameLogicManager>.hasInstance) return false;
+                var gm = SimpleSingletonProvider<GameLogicManager>.inst;
+                var room = gm?.room?.curRoomInfo;
+                if (room == null || room.info == null) return false;
+                if (room.State != Room.Types.State.Running) return false;
+                if (room.info.Id <= 0) return false;
+                long start = room.info.StartTime;
+                if (start <= 0) start = room.StartTime;
+                if (start <= 0) return false;
+                var battle = gm?.battle;
+                if (battle == null || battle.PlayerDatas == null || battle.PlayerDatas.Count == 0) return false;
+                int mapType = 1;
+                try { mapType = room.MapType; } catch { }
+                bool isPve = false;
+                try { isPve = BattleConfig.IsPVE(mapType); } catch { }
+                info = new MatchInfo
+                {
+                    RoomId = room.info.Id,
+                    StartTime = start,
+                    MapType = mapType,
+                    IsPve = isPve,
+                    InBattle = true,
+                };
+                return true;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>把战斗用牌的 cardGuid 反查成真实 CardId(从该玩家手牌容器)。查不到原样返回。</summary>
+        public static int ResolveCardGuid(long playerId, int cardGuid)
+        {
+            try
+            {
+                var pd = Get(playerId);
+                if (pd?.cardContainer?._HandCards != null)
+                {
+                    foreach (var hc in pd.cardContainer._HandCards)
+                    {
+                        if (hc != null && hc.Guid == cardGuid && hc.CardId > 0)
+                            return hc.CardId;
+                    }
+                }
+            }
+            catch { }
+            return cardGuid;
+        }
+
+        /// <summary>这张手牌 Guid 是否在我手上(战斗出牌发的是 Guid, 用它挡住"给了别的玩家/过期的手牌号")。</summary>
+        public static bool HandHasGuid(long playerId, int cardGuid)
+        {
+            if (cardGuid == 0) return false;
+            try
+            {
+                var pd = Get(playerId);
+                if (pd?.cardContainer?._HandCards != null)
+                {
+                    foreach (var hc in pd.cardContainer._HandCards)
+                    {
+                        if (hc != null && hc.Guid == cardGuid) return true;
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>
+        /// 把卡牌配置 id 反查成手牌的唯一实例号 Guid(战斗用牌走 Guid, 见 <c>GameActions.UseCard</c>)。
+        /// 同一张配置可能有多张实例, 返回第一张。查不到返回 0。
+        /// </summary>
+        public static int ResolveCardIdToGuid(long playerId, int cardId)
+        {
+            try
+            {
+                var pd = Get(playerId);
+                if (pd?.cardContainer?._HandCards != null)
+                {
+                    foreach (var hc in pd.cardContainer._HandCards)
+                    {
+                        if (hc != null && hc.CardId == cardId && hc.Guid > 0) return hc.Guid;
+                    }
+                }
+            }
+            catch { }
+            return 0;
+        }
+
+        /// <summary>一个单位身上的一条激活 buff。</summary>
+        public struct BuffOnUnit
+        {
+            /// <summary>buff 配置 id(对应 Buff.bin / STRBuff)。</summary>
+            public int BuffId;
+            /// <summary>当前层数 / 进度。取自 <c>Buff.Progress</c>(即 buff 图标上显示的堆叠数)。</summary>
+            public int Layers;
+            /// <summary>剩余回合数(0 = 不按回合计时或已到期表现层)。</summary>
+            public int KeepRound;
+        }
+
+        /// <summary>
+        /// 读取任意单位(玩家或怪物)当前身上的全部激活 buff, 含层数。
+        /// 优先读取角色 <c>buffContainer._buffDict</c>(与游戏 buff 界面同源)。
+        /// 没有实时容器时才回退到 <c>party.model.Hero.Buffs</c>；容器为空代表没有 buff，不能回退。
+        /// 查不到(不在房间/无该单位)返回空。绝不抛异常。
+        /// </summary>
+        public static IReadOnlyList<BuffOnUnit> BuffsOf(long unitId)
+        {
+            var list = new List<BuffOnUnit>();
+            try
+            {
+                var current = Get(unitId)?.buffContainer?._buffDict;
+                // Hero.Buffs 是模型快照；HeroBuffChangeS2C 的增删改只更新 buffContainer。
+                // 空容器也必须优先，否则消耗掉的护盾会从旧快照里被重新读出来。
+                var buffs = PreferLiveBuffs(current?.Values, () => HeroOf(unitId)?.Buffs?.Values);
+                if (buffs == null) return list;
+                foreach (var b in buffs)
+                {
+                    try
+                    {
+                        if (b == null) continue;
+                        int layers = 0;
+                        try { layers = b.Progress; } catch { }
+                        if (layers <= 0) layers = 1; // 无进度字段的 buff 视为 1 层
+                        int keep = 0;
+                        try { keep = b.KeepRound; } catch { }
+                        list.Add(new BuffOnUnit { BuffId = b.BuffId, Layers = layers, KeepRound = keep });
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+            return list;
+        }
+
+        /// <summary>实时容器即使为空也优先；仅缺少容器时读取模型快照。</summary>
+        internal static IEnumerable<T> PreferLiveBuffs<T>(IEnumerable<T> current, Func<IEnumerable<T>> snapshot)
+        {
+            return current ?? snapshot();
+        }
+
+        /// <summary>取某单位的 Hero 模型(先查战斗 PlayerDatas, 再查房间 Players+Monsters)。查不到返回 null。</summary>
+        private static Hero HeroOf(long unitId)
+        {
+            try
+            {
+                var pd = Get(unitId);
+                if (pd?.player?.Hero != null) return pd.player.Hero;
+            }
+            catch { }
+            try
+            {
+                var gm = SimpleSingletonProvider<GameLogicManager>.inst;
+                var room = gm?.room?.curRoomInfo;
+                if (room != null)
+                {
+                    if (room.Players != null)
+                        foreach (var p in room.Players)
+                            if (p != null && p.Id == unitId && p.Hero != null) return p.Hero;
+                    if (room.Monsters != null)
+                        foreach (var m in room.Monsters)
+                            if (m != null && m.Id == unitId && m.Hero != null) return m.Hero;
+                }
+            }
+            catch { }
+            return null;
+        }
+    }
+}
