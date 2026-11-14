@@ -19,6 +19,7 @@ public final class InstallerEngine {
     private final Environment env;
     private final ZipFile zip;
     private final JSONObject manifest;
+    private boolean experimental;
     public InstallerEngine(Environment environment,File payload)throws Exception {
         env=environment;zip=new ZipFile(payload);
         manifest=new JSONObject(new String(entry("manifest.json",1024*1024),"UTF-8"));
@@ -34,6 +35,7 @@ public final class InstallerEngine {
     private static JSONObject ok(String text)throws Exception{return new JSONObject().put("ok",true).put("message",text);}
 
     public JSONObject execute(JSONObject request)throws Exception {
+        experimental=request.optBoolean("experimental",false);
         String action=request.getString("action");
         if(action.equals("discover"))return discover();
         String pkg=request.getString("package");
@@ -60,6 +62,7 @@ public final class InstallerEngine {
                 Match m=select(pkg);
                 g.put("supported",true).put("profile",m.profile.getString("id")).put("gameVersion",m.profile.getString("gameVersion"))
                  .put("state",state(m)).put("cache",relative(files(pkg),m.data.getParentFile()));
+                if(m.profile.has("templateId"))g.put("compatibility",m.profile.getString("runtimeMode")).put("referenceProfile",m.profile.getString("templateId"));
             } catch(Exception e){g.put("supported",false).put("reason",e.getMessage());}
             games.put(g);
         }
@@ -73,8 +76,9 @@ public final class InstallerEngine {
         File dir=new File(files(pkg),"com.unity.addressables/AssetBundles/"+manifest.getString("bundleKey"));
         File[] children=dir.listFiles();
         if(children==null)throw new IOException("尚未找到热更新缓存，请先启动游戏完成资源下载。");
-        List<Match> matches=new ArrayList<>();int candidates=0;long newestSeen=-1;
+        List<Match> matches=new ArrayList<>();int candidates=0;long newestSeen=-1;String channelFailure=null;
         JSONArray profiles=manifest.getJSONArray("profiles");
+        List<JSONObject> registered=channelProfiles(pkg);
         for(File child:children) {
             if(!child.isDirectory()||!child.getName().matches("[a-f0-9]{32}"))continue;
             File data=new File(child,"__data"),info=new File(child,"__info");
@@ -82,24 +86,81 @@ public final class InstallerEngine {
             long used=validInfo(info);newestSeen=Math.max(newestSeen,used);
             if(data.length()>LIMIT)continue;
             String digest=hash(data);
+            boolean found=false;
             for(int i=0;i<profiles.length();i++) {
                 JSONObject p=profiles.getJSONObject(i);
                 if(digest.equals(p.getString("originalSha256"))||digest.equals(p.getString("patchedSha256"))||contains(p.optJSONArray("legacyMinSha256"),digest)) {
-                    matches.add(new Match(data,p,used));break;
+                    matches.add(new Match(data,p,used));found=true;break;
                 }
+            }
+            if(!found)for(JSONObject p:registered)if(digest.equals(p.getString("originalSha256"))||digest.equals(p.getString("patchedSha256"))) {
+                if(relative(files(pkg),data.getParentFile()).equals(p.getString("channelCache"))){matches.add(new Match(data,p,used));found=true;break;}
+            }
+            if(!found&&experimental) {
+                try{matches.add(new Match(data,channelProfile(pkg,data,digest),used));}
+                catch(IOException e){channelFailure=e.getMessage();}
             }
         }
         if(matches.isEmpty()) {
             Match interrupted=pendingMatch(pkg);
             if(interrupted!=null&&interrupted.used>=newestSeen)return interrupted;
-            throw new IOException(candidates==0?"资源尚未下载完整。":"此游戏资源版本未收录，未修改缓存。请更新适配包。");
+            throw new IOException(candidates==0?"资源尚未下载完整。":experimental&&channelFailure!=null?"实验兼容无法解析当前资源："+channelFailure:"此游戏资源版本未收录，未修改缓存。请更新适配包。");
         }
         matches.sort((a,b)->Long.compare(b.used,a.used));
         if(matches.get(0).used<newestSeen)throw new IOException("当前使用的较新资源版本未收录，拒绝修改旧缓存冒充安装成功。");
         if(matches.size()>1&&matches.get(0).used==matches.get(1).used)throw new IOException("发现多个同时间的资源缓存，无法安全确定当前版本。请先正常启动一次游戏。");
         return matches.get(0);
     }
+    private JSONObject template(String id)throws Exception {
+        JSONArray profiles=manifest.getJSONArray("profiles");
+        for(int i=0;i<profiles.length();i++)if(profiles.getJSONObject(i).getString("id").equals(id))return profiles.getJSONObject(i);
+        throw new IOException("找不到兼容安装使用的基准版本");
+    }
+    private JSONObject channelProfile(String pkg,File data,String digest)throws Exception {
+        UnityBundle bundle=new UnityBundle(read(data,LIMIT));byte[] runtime=bundle.runtime();String runtimeHash=hash(runtime);
+        JSONObject chosen=null;boolean exact=false;long distance=Long.MAX_VALUE;JSONArray profiles=manifest.getJSONArray("profiles");
+        for(int i=0;i<profiles.length();i++) {
+            JSONObject p=profiles.getJSONObject(i),reference=p.optJSONObject("channelRuntime");if(reference==null)continue;
+            if(runtimeHash.equals(reference.getString("originalSha256"))){chosen=p;exact=true;break;}
+            long difference=Math.abs(runtime.length-reference.getLong("originalBytes"));
+            if(difference<distance){distance=difference;chosen=p;}
+        }
+        if(chosen==null)throw new IOException("此安装包没有包含实验兼容基准");
+        JSONObject profile=new JSONObject(chosen.toString());
+        profile.put("templateId",chosen.getString("id")).put("id","channel-"+digest).put("originalSha256",digest).put("patchedSha256","")
+            .put("legacyMinSha256",new JSONArray()).put("runtimeMode",exact?"runtime-match":"forced-reference")
+            .put("channelCache",relative(files(pkg),data.getParentFile()));
+        return profile;
+    }
+    private JSONObject registeredChannel(String pkg,File record)throws Exception {
+        JSONObject saved=new JSONObject(new String(read(record,16384),"UTF-8"));
+        String original=saved.getString("originalSha256"),patched=saved.getString("patchedSha256"),cache=saved.getString("cache");
+        if(saved.getInt("format")!=1||!pkg.equals(saved.getString("package"))||!original.matches("[a-f0-9]{64}")||!patched.matches("[a-f0-9]{64}")
+            ||!record.getParentFile().getName().equals(original))throw new IOException("渠道安装记录无效");
+        if(!cache.matches("com\\.unity\\.addressables/AssetBundles/"+manifest.getString("bundleKey")+"/[a-f0-9]{32}"))throw new IOException("渠道缓存路径无效");
+        JSONObject profile=new JSONObject(template(saved.getString("templateId")).toString());
+        profile.put("templateId",saved.getString("templateId")).put("id","channel-"+original).put("originalSha256",original).put("patchedSha256",patched)
+            .put("legacyMinSha256",new JSONArray()).put("runtimeMode",saved.getString("runtimeMode")).put("channelCache",cache);
+        return profile;
+    }
+    private List<JSONObject> channelProfiles(String pkg)throws Exception {
+        List<JSONObject> profiles=new ArrayList<>();File[] backups=new File(root(pkg),"backups").listFiles();
+        if(backups!=null)for(File backup:backups)if(backup.isDirectory()&&backup.getName().matches("[a-f0-9]{64}")) {
+            File record=new File(backup,"channel.json");if(record.isFile())profiles.add(registeredChannel(pkg,record));
+        }
+        return profiles;
+    }
+    private JSONObject profileById(String pkg,String id)throws Exception {
+        if(id.matches("channel-[a-f0-9]{64}")) {
+            File record=new File(root(pkg),"backups/"+id.substring(8)+"/channel.json");
+            return record.isFile()?registeredChannel(pkg,record):null;
+        }
+        JSONArray profiles=manifest.getJSONArray("profiles");
+        for(int i=0;i<profiles.length();i++)if(profiles.getJSONObject(i).getString("id").equals(id))return profiles.getJSONObject(i);
+        return null;
+    }
     private String state(Match m)throws Exception {
+        if(m.profile.has("templateId")&&m.profile.optString("patchedSha256").isEmpty())return "experimental-ready";
         String h=hash(m.data);
         return h.equals(m.profile.getString("patchedSha256"))?"installed":h.equals(m.profile.getString("originalSha256"))?"original":contains(m.profile.optJSONArray("legacyMinSha256"),h)?"legacy-min":"interrupted";
     }
@@ -109,8 +170,7 @@ public final class InstallerEngine {
         if(!pkg.equals(record.getString("package")))throw new IOException("未完成操作的包名不符");
         String relative=record.getString("cache");
         if(!relative.matches("com\\.unity\\.addressables/AssetBundles/"+manifest.getString("bundleKey")+"/[a-f0-9]{32}"))throw new IOException("未完成操作路径无效");
-        JSONObject profile=null;JSONArray profiles=manifest.getJSONArray("profiles");
-        for(int i=0;i<profiles.length();i++)if(profiles.getJSONObject(i).getString("id").equals(record.getString("profile")))profile=profiles.getJSONObject(i);
+        JSONObject profile=profileById(pkg,record.getString("profile"));
         if(profile==null||!profile.getString("originalSha256").equals(record.getString("originalSha256"))||!profile.getString("patchedSha256").equals(record.getString("patchedSha256")))throw new IOException("未完成操作的版本记录不匹配");
         File target=inside(files(pkg),relative+"/__data"),backup=new File(base,"backups/"+profile.getString("originalSha256"));
         verifyBackup(backup,profile.getString("originalSha256"));
@@ -146,9 +206,17 @@ public final class InstallerEngine {
         }
         require(originalSource,original);
         File info=new File(match.data.getParentFile(),"__info");validInfo(info);
-        byte[] delta=entry("profiles/"+match.profile.getString("id")+"/cache.csdiff",LIMIT);
-        require(delta,match.profile.getString("deltaSha256"));
-        byte[] generated=DeltaPatch.apply(read(originalSource,LIMIT),delta);require(generated,patched);
+        byte[] generated;
+        if(match.profile.has("templateId")) {
+            JSONObject runtime=match.profile.getJSONObject("channelRuntime");
+            byte[] replacement=entry(runtime.getString("file"),LIMIT);require(replacement,runtime.getString("sha256"));
+            generated=new UnityBundle(read(originalSource,LIMIT)).replaceRuntime(replacement);
+            if(patched.isEmpty()){patched=hash(generated);match.profile.put("patchedSha256",patched);}else require(generated,patched);
+        } else {
+            byte[] delta=entry("profiles/"+match.profile.getString("id")+"/cache.csdiff",LIMIT);
+            require(delta,match.profile.getString("deltaSha256"));
+            generated=DeltaPatch.apply(read(originalSource,LIMIT),delta);require(generated,patched);
+        }
         mkdir(backup);
         if(!new File(backup,"__data").exists())copy(originalSource,new File(backup,"__data"));
         require(new File(backup,"__data"),original);
@@ -157,6 +225,12 @@ public final class InstallerEngine {
             atomic(new File(backup,"info.sha256"),hash(new File(backup,"__info")).getBytes("UTF-8"));
         }
         verifyBackup(backup,original);
+        if(match.profile.has("templateId")) {
+            JSONObject channel=new JSONObject().put("format",1).put("package",pkg).put("templateId",match.profile.getString("templateId"))
+                .put("cache",relative(files(pkg),match.data.getParentFile())).put("originalSha256",original).put("patchedSha256",patched)
+                .put("runtimeMode",match.profile.getString("runtimeMode"));
+            atomic(new File(backup,"channel.json"),channel.toString(2).getBytes("UTF-8"));
+        }
         installFiles(pkg,match.profile);
         File staged=new File(base,"staged-data");atomic(staged,generated);require(staged,patched);
         JSONObject record=new JSONObject().put("format",2).put("package",pkg).put("profile",match.profile.getString("id"))
@@ -172,8 +246,10 @@ public final class InstallerEngine {
         configure(pkg,enabled);
         File disabled=new File(base,"DISABLED");if(disabled.exists()&&!disabled.delete())throw new IOException("无法清除停用标记");
         atomic(new File(base,"installed.json"),record.toString(2).getBytes("UTF-8"));pending.delete();
-        return ok("安装完成，已备份并校验。现在可以启动游戏。").put("state","installed").put("package",pkg)
+        JSONObject result=ok(match.profile.has("templateId")?"实验兼容安装完成，已保留本渠道原版备份。请启动游戏测试。":"安装完成，已备份并校验。现在可以启动游戏。").put("state","installed").put("package",pkg)
             .put("profile",match.profile.getString("id")).put("backup",backup.getAbsolutePath()).put("enabled",enabledList(pkg));
+        if(match.profile.has("templateId"))result.put("compatibility",match.profile.getString("runtimeMode")).put("referenceProfile",match.profile.getString("templateId"));
+        return result;
     }
     private void installFiles(String pkg,JSONObject profile)throws Exception {
         File base=root(pkg);JSONObject common=manifest.getJSONObject("commonFiles");
@@ -187,7 +263,7 @@ public final class InstallerEngine {
         while(it.hasNext()) {
             String name=it.next();
             String dest=name.equals("CesiumLoader.Android.Bootstrap.dll")?"bootstrap/"+name:name;
-            byte[] value=entry("profiles/"+profile.getString("id")+"/"+name,LIMIT);require(value,files.getString(name));
+            byte[] value=entry("profiles/"+profile.optString("templateId",profile.getString("id"))+"/"+name,LIMIT);require(value,files.getString(name));
             writePayloadFile(base,dest,value,files.getString(name));
         }
     }

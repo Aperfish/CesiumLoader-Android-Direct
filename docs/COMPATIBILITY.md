@@ -4,7 +4,9 @@
 
 最低构建版本 Android 8（API 26），target 35；这不代表所有 Android 8–16 环境都已验证。实际 Shizuku 文件安装验证覆盖小米 15 / Android 16 和 Android 15 x86_64 模拟器。当前没有 root 真机安装验证，也没有所有渠道服实测。
 
-包名识别为 `com.feimo.astralparty`、`com.feimo.jxpd` 及点分隔渠道后缀；必须同时匹配资源内容。日服不在范围内。带已知 `libcesium.so` 的改包拒绝叠加。
+包名识别为 `com.feimo.astralparty`、`com.feimo.jxpd` 及点分隔渠道后缀；严格模式必须同时匹配资源内容。日服不在范围内。带已知 `libcesium.so` 的改包拒绝叠加。
+
+0.5.0 新增默认开启的“实验性强制兼容”。未匹配整份缓存时，支持解析无压缩/LZ4/LZ4HC UnityFS 和序列化版本 17–22；按内部运行程序集匹配，或使用大小最接近的 3.3.0 基准运行程序集重建缓存。后者可能损失渠道特有行为，不保证登录和玩法兼容。关闭开关继续使用严格资源匹配。好游快爆包名已识别，但本地没有该渠道的实际资源，尚未完成实测。未知内容不是只跳过校验后套用原差分。
 
 ## Mod 清单
 
@@ -23,7 +25,7 @@
 | ChatDurationMod | 消息停留时间 | 保留原 DLL 功能；静态检查通过，玩法待测 |
 | CombatOddsMod | 战斗胜率助手 | 保留原 DLL 功能；静态检查通过，玩法待测 |
 | ForkDirectionMod | 岔路口看牌 | 保留原 DLL 功能；静态检查通过，玩法待测 |
-| FreeCameraMod | 自由相机（双指滑动） | 双指手势、UI 避让与镜头复位 |
+| FreeCameraMod | 自由相机（双指缩放） | 双指纵滑/捏合缩放、UI 避让与镜头复位；横向平移不旋转 |
 | HandViewerMod | 手牌查看 | 保留原 DLL 功能；静态检查通过，玩法待测 |
 | HideHudMod | 隐藏 HUD（触屏） | API 触屏显隐入口 |
 | HomeBottomBarMod | 首页底栏展开 | 保留原 DLL 功能；静态检查通过，玩法待测 |

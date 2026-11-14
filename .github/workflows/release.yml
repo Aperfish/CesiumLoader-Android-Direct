@@ -1,0 +1,32 @@
+name: Publish Android test release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'releases/v0.5.0.json'
+      - '.github/workflows/release.yml'
+      - 'scripts/publish-release.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-test-release-v0.5.0
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'Aperfish/CesiumLoader-Android-Direct'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Verify signed APK and publish pre-release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish-release.py --manifest releases/v0.5.0.json

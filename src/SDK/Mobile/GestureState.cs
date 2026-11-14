@@ -2,7 +2,7 @@ using System;
 namespace CesiumLoader.SDK.Mobile {
  // No Unity calls: the gesture protocol is verified on the build host.
  public sealed class GestureState {
-  bool tracking,blocked; int first,second; float x,y,span;
+  bool tracking,blocked; int first,second; float y,span;
   public bool Consuming {get;private set;}
   public void Block(){blocked=true;tracking=false;Consuming=true;}
   public void Reset(){tracking=false;blocked=false;Consuming=false;}
@@ -14,13 +14,12 @@ namespace CesiumLoader.SDK.Mobile {
    Consuming=true;
    if(overUi){Block();return true;}
    if(a>b){int id=a;a=b;b=id;float t=ax;ax=bx;bx=t;t=ay;ay=by;by=t;}
-   float cx=(ax+bx)*.5f,cy=(ay+by)*.5f;
+   float cy=(ay+by)*.5f;
    float dx=bx-ax,dy=by-ay,dist=(float)Math.Sqrt(dx*dx+dy*dy);
-   if(!tracking||first!=a||second!=b){first=a;second=b;x=cx;y=cy;span=dist;tracking=true;return true;}
+   if(!tracking||first!=a||second!=b){first=a;second=b;y=cy;span=dist;tracking=true;return true;}
    float s=Math.Max(1,scale);
-   yaw=Math.Max(-30,Math.Min(30,(cx-x)/s*180f));
    zoom=Math.Max(-1,Math.Min(1,((dist-span)+(cy-y))/s*8f));
-   x=cx;y=cy;span=dist;return true;
+   y=cy;span=dist;return true;
   }
  }
 }

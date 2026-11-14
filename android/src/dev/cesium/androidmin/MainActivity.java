@@ -19,6 +19,7 @@ public final class MainActivity extends Activity {
     private final Map<String,CheckBox> mods=new LinkedHashMap<>();
     private TextView output,state;
     private Spinner backendChoice;
+    private CheckBox experimental;
     private volatile IBinder binder;
     private volatile boolean busy;
     private volatile String backend="";
@@ -39,11 +40,14 @@ public final class MainActivity extends Activity {
         super.onCreate(saved);current=this;
         gamePackage=getPreferences(0).getString("game",null);
         LinearLayout layout=new LinearLayout(this);layout.setOrientation(LinearLayout.VERTICAL);layout.setPadding(24,20,24,24);
-        TextView title=new TextView(this);title.setText("Cesium 安卓模组包 0.4.0");title.setTextSize(23);layout.addView(title);
-        TextView help=new TextView(this);help.setText("先完成游戏资源下载并退出游戏。授权后可一键安装，原版缓存会自动备份。\n支持已匹配资源版本的国服和渠道服；不需要卸载官方游戏。");help.setTextSize(14);layout.addView(help);
+        TextView title=new TextView(this);title.setText("Cesium 安卓模组包 0.5.0 实验版");title.setTextSize(23);layout.addView(title);
+        TextView help=new TextView(this);help.setText("先完成游戏资源下载并退出游戏。授权后可一键安装，原版缓存会自动备份。\n支持国服和渠道后缀识别；开启实验兼容可尝试未收录缓存。不需要卸载官方游戏。");help.setTextSize(14);layout.addView(help);
         backendChoice=new Spinner(this);backendChoice.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"自动选择（root 优先）","使用 Shizuku","使用 root"}));
         backendChoice.setSelection(getPreferences(0).getInt("backend",0));layout.addView(backendChoice);
-        button(layout,"操作与适配说明",()->new AlertDialog.Builder(this).setTitle("安卓适配测试包 0.4.0").setMessage("收录所选目录内 27 个 Mod，保留 NoBot，并增加 AndroidApi 触屏入口与 Cesium 悬浮窗。SpeedPerfProbe 无 DLL，未收录。\n\n左侧头像按钮打开悬浮窗：左栏选择模组，右栏显示功能；列表和功能都可翻页。窗口与头像可拖动。\n\n变速：选择变速模组，使用 1–10x 预设与加减、1x/记忆切换。使用 Unity 时间倍率，系统时钟不变，启动保持 1x。\n\n自由相机：双指横滑旋转，双指纵滑或捏合缩放；模组控制面板可复位。单指保留游戏操作。\n\n模组控制面板提供 HUD、角色半透明、刷怪预报、商店看板、快捷购买与 PVE 面板入口。\n\n回合置前改为游戏内文字提醒，不切换后台应用。皮肤/音效 Mod 需要另备方案素材；本包包含原目录内的数据、图标及提示音。\n\n已修复旧版在主线程加载时未启动每帧回调的问题。仓库 AndroidApi 已接入；窗口保留头像、左侧模组与右侧功能结构，使用 FairyGUI 作为当前免改包方案的窗口宿主。\n\n已完成四份 3.3.0 资源 API 静态检查与构建检查，未在手机运行本版本。root 完整安装仍未实测。未知资源版本拒绝写入。更新旧版后需要退出游戏，再点一键安装以更新 Mod 文件。").setPositiveButton("知道了",null).show());
+        experimental=new CheckBox(this);experimental.setText("实验性强制兼容渠道资源（未知代码使用 3.3.0 基准）");
+        experimental.setChecked(getPreferences(0).getBoolean("experimental",true));layout.addView(experimental);
+        TextView channelHelp=new TextView(this);channelHelp.setText("已识别的渠道后缀共用安装入口。开启实验兼容后，不再要求整个缓存匹配：先按内部程序集匹配；未知程序集按最接近的内置 3.3.0 基准替换。其他程序集保留，原缓存仍会备份。可能影响渠道功能；不正常时退出游戏并恢复原版。");layout.addView(channelHelp);
+        button(layout,"操作与适配说明",()->new AlertDialog.Builder(this).setTitle("安卓适配测试包 0.5.0").setMessage("收录所选目录内 27 个 Mod，保留 NoBot，并增加 AndroidApi 触屏入口与 Cesium 悬浮窗。SpeedPerfProbe 无 DLL，未收录。\n\n左侧头像按钮打开悬浮窗：左栏选择模组，右栏显示功能；列表和功能都可翻页。窗口与头像可拖动。\n\n变速：选择变速模组，使用 1–10x 预设与加减、1x/记忆切换。使用 Unity 时间倍率，系统时钟不变，启动保持 1x。\n\n自由相机：仅支持双指纵滑或捏合缩放，横向平移不旋转；模组控制面板可复位。单指保留游戏操作。\n\n模组控制面板提供 HUD、角色半透明、刷怪预报、商店看板、快捷购买与 PVE 面板入口。\n\n回合置前改为游戏内文字提醒，不切换后台应用。皮肤/音效 Mod 需要另备方案素材；本包包含原目录内的数据、图标及提示音。\n\n已修复旧版在主线程加载时未启动每帧回调的问题。仓库 AndroidApi 已接入；窗口保留头像、左侧模组与右侧功能结构，使用 FairyGUI 作为当前免改包方案的窗口宿主。\n\n已完成四份 3.3.0 资源 API 静态检查与构建检查，未在手机运行本版本。root 完整安装仍未实测。实验兼容默认开启：整份缓存未收录也会尝试安装；内部程序集匹配时采用对应补丁，否则使用大小最接近的 3.3.0 基准运行程序集。其他程序集保留。未知代码版本可能不兼容，安装后需要实测。关闭实验兼容可恢复严格匹配。更新旧版后需要退出游戏，再点一键安装以更新 Mod 文件。").setPositiveButton("知道了",null).show());
         button(layout,"全选模组",()->{for(CheckBox c:mods.values())c.setChecked(true);});
         button(layout,"清空选择（保留触屏入口）",()->{for(Map.Entry<String,CheckBox> e:mods.entrySet())e.getValue().setChecked((e.getKey().equals("AndroidControlsMod")||e.getKey().equals("CesiumOverlayMod")));});
         try(InputStream in=getAssets().open("mod-list.json")){
@@ -67,7 +71,7 @@ public final class MainActivity extends Activity {
         received=()->main.post(()->{if(pending!=null)ensureShizuku();});
         dead=()->main.post(()->{binder=null;if(backend.equals("shizuku")){backend="";busy=false;show("Shizuku 已停止。启动后重新点击操作即可。");}});
         Shizuku.addRequestPermissionResultListener(permission);Shizuku.addBinderReceivedListenerSticky(received);Shizuku.addBinderDeadListener(dead);
-        show("30 项启用项 · 四份 3.3.0 资源适配 · 触屏功能待你实机验证");
+        show("30 项启用项 · 渠道实验兼容 · 更新后请重新执行一键安装");
     }
     private void addMod(LinearLayout parent,String id,String label){CheckBox c=new CheckBox(this);c.setText(label);c.setChecked(getPreferences(0).getBoolean(id,true));mods.put(id,c);parent.addView(c);}
     private void button(LinearLayout parent,String text,Runnable action){Button b=new Button(this);b.setText(text);b.setOnClickListener(v->action.run());parent.addView(b);}
@@ -110,7 +114,7 @@ public final class MainActivity extends Activity {
     private void connectShizuku() {
         try {
             show("连接 Shizuku 文件服务…");
-            args=new Shizuku.UserServiceArgs(new ComponentName(this,PrivilegedService.class)).daemon(false).debuggable(false).version(40).processNameSuffix("direct-files").tag("cesium-direct-files");
+            args=new Shizuku.UserServiceArgs(new ComponentName(this,PrivilegedService.class)).daemon(false).debuggable(false).version(50).processNameSuffix("direct-files").tag("cesium-direct-files");
             Shizuku.bindUserService(args,connection);
             main.postDelayed(()->{if(pending!=null&&(binder==null||!binder.pingBinder()))fail("文件服务未连接，请重启 Shizuku 后重试。");},12000);
         }catch(Throwable e){fail("启动文件服务失败："+e.getMessage());}
@@ -139,6 +143,7 @@ public final class MainActivity extends Activity {
     }
     private interface Result{void done(JSONObject result);}
     private void runRequest(String action,String pkg,JSONArray enabled,Result callback) {
+        final boolean useExperimental=experimental.isChecked();getPreferences(0).edit().putBoolean("experimental",useExperimental).apply();
         show(action.equals("install")?"校验、备份并生成适配补丁…":"正在处理…");
         worker.execute(()->{
             JSONObject result;
@@ -147,7 +152,7 @@ public final class MainActivity extends Activity {
                 if(!stage.isFile()||!digest(stage).equals(BuildInfo.PAYLOAD_SHA256)) {
                     try(InputStream in=getAssets().open("payload.zip");FileOutputStream out=new FileOutputStream(stage)){byte[] b=new byte[32768];int n;while((n=in.read(b))!=-1)out.write(b,0,n);out.getFD().sync();}
                 }
-                JSONObject request=new JSONObject().put("action",action);
+                JSONObject request=new JSONObject().put("action",action).put("experimental",useExperimental);
                 if(pkg!=null)request.put("package",pkg);if(enabled!=null)request.put("enabled",enabled);
                 String json;
                 if(backend.equals("root")) {

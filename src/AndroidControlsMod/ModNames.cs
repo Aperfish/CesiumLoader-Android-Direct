@@ -10,7 +10,7 @@ using System.Collections.Generic; namespace AndroidControlsMod { internal static
 {"ChatDurationMod","消息停留时间"},
 {"CombatOddsMod","战斗胜率助手"},
 {"ForkDirectionMod","岔路口看牌"},
-{"FreeCameraMod","自由相机（双指滑动）"},
+{"FreeCameraMod","自由相机（双指缩放）"},
 {"HandViewerMod","手牌查看"},
 {"HideHudMod","隐藏 HUD（触屏）"},
 {"HomeBottomBarMod","首页底栏展开"},

@@ -76,15 +76,10 @@ namespace CesiumLoader.SDK.Mobile {
    lastConsumed=consume;
    if(!consume)return false;
    try{
-    Set("_rotateHeldNow",count==2&&!blockedByUi&&!ended);
+    Set("_rotateHeldNow",false);
     Call("MaintainAutoFollow");
     if(ended||blockedByUi)return true;
     if(Math.Abs(zoom)>.00001f)Call("HandleZoomScroll",zoom*((bool)(Get("_invertWheel")??false)?-1:1));
-    if(Math.Abs(yaw)>.00001f&&(bool)(Call("TryBeginDrive","双指滑动")??false)){
-     if((bool)(Get("_invertRotate")??false))yaw=-yaw;
-     float target=(float)Get("_targetYawDelta")+yaw;Set("_targetYawDelta",target);
-     if(!(bool)Get("_smooth"))Set("_yawDelta",target);
-    }
     Set("_lastFollowInteractionAt",Time.realtimeSinceStartup);
    }catch(Exception e){Debug.LogError("[CesiumAndroid] camera gesture: "+e);}
    return true;

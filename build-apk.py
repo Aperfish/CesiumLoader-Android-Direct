@@ -39,7 +39,9 @@ with zipfile.ZipFile(apk,'a',zipfile.ZIP_DEFLATED) as z:z.write(dex/'classes.dex
 aligned=BUILD/'aligned.apk';run([bt/'zipalign.exe','-f','-p','4',apk,aligned])
 default_output=ROOT/'outputs'
 output_dir=Path(os.environ.get('CESIUM_OUTPUT_DIR',str(default_output)));output_dir.mkdir(parents=True,exist_ok=True)
-output=output_dir/'CesiumLoader-Android-ModPack-0.4.0.apk'
+import xml.etree.ElementTree as ET
+version=ET.parse(ROOT/'android/AndroidManifest.xml').getroot().get('{http://schemas.android.com/apk/res/android}versionName')
+output=output_dir/('CesiumLoader-Android-ModPack-'+version+'.apk')
 key=Path(os.environ.get('CESIUM_KEYSTORE',str(TOOLS/'development-signing.p12')))
 if not key.exists():
     key.parent.mkdir(parents=True,exist_ok=True)
